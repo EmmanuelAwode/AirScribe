@@ -1,0 +1,5 @@
+# Runtime. MediaPipe already depends on opencv-contrib-python, so we pin that
+# build of OpenCV rather than adding opencv-python (two cv2 packages conflict).
+mediapipe==0.10.21
+opencv-contrib-python==4.11.0.86
+numpy==1.26.4
