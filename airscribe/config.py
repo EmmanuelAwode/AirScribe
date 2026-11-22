@@ -27,6 +27,8 @@ class GestureConfig:
     # Falls back to whichever is available. Check settings against a recording
     # with:  python scripts/replay_log.py gestures.csv
     pinch_measure: str = "blend"
+    # Share of the 2D (tilt-corrected) reading in the blend; the rest is 3D.
+    blend_weight_2d: float = 0.5
     # A transition must hold this many consecutive frames (about 55 ms at 37 fps)
     # so one noisy frame can neither break a stroke nor start one.
     confirm_frames: int = 2
@@ -76,6 +78,13 @@ class StrokeConfig:
     # Pixels inset from the frame edges; the fingertip outside this inner
     # rectangle counts as "left the drawing area" and ends the stroke.
     edge_margin: int = 12
+    # A pinch that opens for only a moment and closes again where it left off
+    # is a flicker, not a real release: if the pen goes back down within this
+    # many frames (~120 ms at 57 fps) and this many pixels of where the stroke
+    # ended, the SAME stroke continues. Only pinch releases are re-joined -
+    # tracking dropouts, leaving the area and glitch jumps always start fresh.
+    rejoin_frames: int = 7
+    rejoin_px: float = 40.0
 
 
 @dataclass

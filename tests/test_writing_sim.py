@@ -51,9 +51,12 @@ def test_old_3d_only_setting_fails_in_front_of_body():
 
 @pytest.mark.parametrize("pose", list(POSES))
 def test_hovering_with_half_closed_thumb_leaves_almost_no_ink(pose):
-    # 6 writers x 20 s each, thumb drifting up to halfway to a pinch
+    # Stress test: 6 writers x 20 s, thumb drifting up to HALFWAY to a pinch.
+    # At most a few stray marks in those 2 minutes. (An earlier version scored
+    # better here by letting such hovering lower the start level, but on a real
+    # session that same mechanism made genuine pinches stop registering.)
     total = sum(run_hover_only(seed=s, pose=pose, max_pinch=0.5)["strokes"] for s in SEEDS)
-    assert total <= 1
+    assert total <= 4
 
 
 def test_adapting_to_a_close_resting_thumb_stops_joined_letters():
@@ -106,3 +109,20 @@ def test_real_session_replay_regression():
         lengths.append(e - s)
     assert len(starts) <= 24                       # old 3D-only setting: 31
     assert sum(n < 10 for n in lengths) <= 2       # old: 7 accidental bits
+
+
+def test_live_session_open_level_does_not_spiral_down():
+    """Real session (tests/data/session2_ratios.csv): the right side of the frame
+    reads a real pinch as ~0.3. The learned open level must stay at the real
+    open hand (~0.5), not be dragged down by pinches that failed to register."""
+    from airscribe.gestures import PinchDetector, combine_ratios
+    path = os.path.join(os.path.dirname(__file__), "data", "session2_ratios.csv")
+    rows = list(csv.DictReader(open(path)))
+    g = Config().gesture
+    det = PinchDetector.from_config(g)
+    num = lambda v: float(v) if v else None   # noqa: E731
+    pen = [det.update(combine_ratios(num(r["ratio2dt"]), num(r["ratio3d"]), g.pinch_measure, g.blend_weight_2d)
+                      if r["hand"] == "1" else None) for r in rows]
+    assert det.open_level > 0.45                 # was 0.41 before the fix
+    assert det.start_now >= 0.27 and det.release_now >= 0.40
+    assert np.mean(pen) > 0.32                   # pen down share: 27% before the fix

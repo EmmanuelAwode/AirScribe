@@ -98,7 +98,8 @@ class AirScribe:
             self.ratio3d = pinch_ratio(world)
             self.ratio2dt = pinch_ratio_tilt_corrected(landmarks, world)
         r2d = self.ratio2dt if self.ratio2dt is not None else self.ratio2d
-        self.ratio = combine_ratios(r2d, self.ratio3d, self.cfg.gesture.pinch_measure)
+        g = self.cfg.gesture
+        self.ratio = combine_ratios(r2d, self.ratio3d, g.pinch_measure, g.blend_weight_2d)
         pinched = self.pinch.update(self.ratio)
         self.cursor = self.smoother(landmarks[INDEX_TIP], t)
         manual = self.state.manual_ink
@@ -107,7 +108,7 @@ class AirScribe:
             self.cursor, pinched or manual, self.color, self.stroke_width(),
             self.state.tool == "eraser", hold=self.pinch.pending_release and not manual,
         )
-        if self.drawing and not was_active and not manual:
+        if self.drawing and not was_active and not manual and not self.strokes.rejoined:
             self.canvas.prepend_points(self._backfill())
         keep = self.cfg.gesture.backfill_frames
         self._recent.append((self.cursor, self.pinch.value))

@@ -54,7 +54,8 @@ def pinch_ratio_tilt_corrected(px: Sequence[Point], world: Sequence[Point]) -> O
     return _dist(px[THUMB_TIP], px[INDEX_TIP]) / ppm / hand_size
 
 
-def combine_ratios(r2d: Optional[float], r3d: Optional[float], measure: str = "blend") -> Optional[float]:
+def combine_ratios(r2d: Optional[float], r3d: Optional[float], measure: str = "blend",
+                   weight_2d: float = 0.5) -> Optional[float]:
     """Pick or blend the 2D and 3D pinch ratios (see GestureConfig.pinch_measure).
     r2d should be the tilt-corrected 2D ratio whenever world landmarks exist."""
     if r2d is None or r3d is None:
@@ -64,7 +65,7 @@ def combine_ratios(r2d: Optional[float], r3d: Optional[float], measure: str = "b
     if measure == "3d":
         return r3d
     if measure == "blend":
-        return (r2d + r3d) / 2
+        return weight_2d * r2d + (1 - weight_2d) * r3d
     raise ValueError(f"unknown pinch_measure {measure!r}")
 
 
@@ -94,7 +95,8 @@ class PinchDetector:
     between letters (letters get joined) and hovering dips under the start
     level (stray marks). The detector keeps `open_level`, a slow running
     average of the ratio while the pen is up and the fingers are not closing,
-    and lowers the thresholds to sit below it:
+    (learning only from frames that are clearly open by the configured
+    levels) and lowers the thresholds to sit below it:
         release_now = open_level - release_margin   (never above `release`)
         start_now   = open_level - start_margin     (never above `start`)
     with floors so a pinch is always possible.
@@ -150,8 +152,13 @@ class PinchDetector:
             crossing = ratio > release
         else:
             crossing = ratio < start and self.tracked_frames > self.warmup_frames
-            if self.adapt and self.tracked_frames > self.warmup_frames and ratio > start + 0.04:
-                # pen up and fingers not closing: learn this hand's open level
+            if (self.adapt and self.tracked_frames > self.warmup_frames
+                    and ratio > (self.start + self.release) / 2):
+                # Pen up and the hand clearly open by the DEFAULT levels: learn
+                # this hand's open level. Gating on the fixed defaults (not the
+                # live, adapted levels) matters: a pinch that failed to register
+                # must never teach the detector that "open" is lower, or the
+                # levels spiral down and pinches fail more and more.
                 self.open_level += self.adapt_rate * (ratio - self.open_level)
         self._count = self._count + 1 if crossing else 0
         if self._count >= self.confirm_frames:

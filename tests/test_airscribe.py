@@ -438,3 +438,48 @@ def test_pinching_does_not_teach_the_open_level():
     for _ in range(100):
         d.update(0.10)                                   # holding a pinch
     assert d.pinched and d.open_level == before
+
+
+def test_failed_pinches_do_not_teach_the_open_level():
+    d = PinchDetector(0.28, 0.44, adapt=True, adapt_rate=0.2)
+    before = d.open_level
+    for _ in range(200):
+        d.update(0.32)          # a real pinch that reads too high to register
+    assert not d.pinched and d.open_level == before
+
+
+# ------------------------------------------------- re-joining a momentary release
+def _ctrl():
+    canvas = InkCanvas(W, H)
+    return canvas, StrokeController(canvas, StrokeConfig(edge_margin=10, rejoin_frames=7, rejoin_px=40))
+
+
+def test_momentary_release_continues_the_same_stroke():
+    canvas, ctrl = _ctrl()
+    feed(ctrl, [((100, 100), True), ((120, 100), True), ((140, 100), False), ((145, 100), False),
+                ((150, 100), True), ((170, 100), True)])
+    assert len(canvas.strokes) == 1
+    assert canvas.strokes[0].points[-1] == (170, 100)
+
+
+def test_real_release_and_move_starts_a_new_stroke():
+    canvas, ctrl = _ctrl()
+    feed(ctrl, [((100, 100), True), ((120, 100), True)] + [((200, 100), False)] * 3 + [((300, 100), True)])
+    assert len(canvas.strokes) == 2            # moved 180 px: a new letter
+    canvas, ctrl = _ctrl()
+    feed(ctrl, [((100, 100), True), ((120, 100), True)] + [((125, 100), False)] * 20 + [((125, 100), True)])
+    assert len(canvas.strokes) == 2            # paused too long: deliberate
+
+
+def test_dropout_never_rejoins():
+    canvas, ctrl = _ctrl()
+    feed(ctrl, [((100, 100), True), ((120, 100), True), (None, True), ((125, 100), True)])
+    assert len(canvas.strokes) == 2
+
+
+def test_rejoined_stroke_is_one_undo_step():
+    canvas, ctrl = _ctrl()
+    feed(ctrl, [((100, 100), True), ((120, 100), True), ((140, 100), False), ((145, 100), True),
+                ((165, 100), True)])
+    ctrl.end()
+    assert canvas.undo() and canvas.is_empty

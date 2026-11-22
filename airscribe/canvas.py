@@ -60,6 +60,13 @@ class InkCanvas:
             prev = q
         self.current.points[:0] = pts
 
+    def reopen_last(self) -> bool:
+        """Continue the most recent stroke (used to re-join a momentary release)."""
+        if self.current is None and self.strokes:
+            self.current = self.strokes[-1]
+            return True
+        return False
+
     def end_stroke(self) -> None:
         self.current = None
 

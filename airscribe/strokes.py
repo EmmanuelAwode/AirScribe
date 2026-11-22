@@ -4,7 +4,8 @@ Inputs per frame: the (smoothed) fingertip position or None, whether the pen is
 down (pinch or keyboard toggle), and whether the point is inside the drawing
 area. Output: calls on the canvas. It never connects two points across a gap:
 any frame where drawing is not allowed ends the stroke, and the next allowed
-frame begins a brand-new one.
+frame begins a brand-new one. The one exception is a momentary pinch release
+(see StrokeConfig.rejoin_frames): that continues the same stroke.
 """
 import math
 from typing import Optional, Tuple
@@ -21,6 +22,10 @@ class StrokeController:
         self.active = False
         self.last: Optional[Point] = None
         self.end_reason = ""
+        self.rejoined = False           # True on the frame a stroke was re-joined
+        self._since_end = 10**9         # frames since the last pinch release
+        self._end_point: Optional[Point] = None
+        self._end_style = None
         self.diag = math.hypot(canvas.width, canvas.height)
 
     def in_area(self, p: Point) -> bool:
@@ -34,6 +39,8 @@ class StrokeController:
         hold: keep the current stroke open but add no point this frame (used
         while a pinch release is being confirmed, so opening fingers leave no tail).
         """
+        self.rejoined = False
+        self._since_end += 1
         if point is None or not pen_down or not self.in_area(point):
             reason = "no_hand" if point is None else ("pen_up" if not pen_down else "out_of_area")
             self.end(reason)
@@ -50,8 +57,16 @@ class StrokeController:
                 return True
 
         if not self.active:
-            self.canvas.begin_stroke(color, size, erase)
+            style = (tuple(color), size, erase)
+            close = (self._end_point is not None
+                     and math.hypot(point[0] - self._end_point[0], point[1] - self._end_point[1]) <= self.cfg.rejoin_px)
+            if (self._since_end <= self.cfg.rejoin_frames and close and style == self._end_style
+                    and self.canvas.reopen_last()):
+                self.rejoined = True        # momentary release: carry on the same stroke
+            else:
+                self.canvas.begin_stroke(color, size, erase)
             self.active = True
+            self._end_point = None
         self.canvas.add_point(point)
         self.last = point
         return True
@@ -60,5 +75,12 @@ class StrokeController:
         if self.active:
             self.canvas.end_stroke()
             self.end_reason = reason
+            if reason == "pen_up" and self.canvas.strokes:
+                s = self.canvas.strokes[-1]
+                self._since_end = 0
+                self._end_point = self.last
+                self._end_style = (tuple(s.color), s.size, s.erase)
+            else:
+                self._end_point = None   # dropouts, edges, jumps, tool changes: never re-join
         self.active = False
         self.last = None

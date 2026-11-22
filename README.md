@@ -116,7 +116,11 @@ camera frame ──flip──> HandTracker ──21 landmarks──> pinch ratio
      rests near your index finger, an open hand reads ~0.43, so a fixed release level of
      0.44 would never lift the pen between letters. The detector learns your open-hand
      value while the pen is up and keeps release 0.05 below it and start 0.17 below it.
-     They never go higher than 0.44 / 0.28, and never lower than 0.30 / 0.22.
+     They never go higher than 0.44 / 0.28, and never lower than 0.30 / 0.22. It only
+     learns from frames that are clearly open by the default levels. A real session
+     showed why: when it learned from every pen-up frame, pinches that failed to register
+     taught it a lower "open" value. That lowered the levels, so more pinches failed, and
+     the open value sank from ~0.5 to 0.41.
    - A newly seen hand must be tracked for 3 frames before it can draw, so it leaves no
      stray dots.
    - While a release is pending, the pen holds still, so opening your fingers never adds a
@@ -134,6 +138,10 @@ camera frame ──flip──> HandTracker ──21 landmarks──> pinch ratio
    single-frame jump larger than 25% of the frame diagonal is also treated as a glitch.
    So a tracking dropout can never draw a line across the canvas. When the hand
    disappears, the smoother is also reset, so the cursor doesn't glide in from the old position.
+   The one exception is a **momentary pinch release**. If the pen goes back down within
+   7 frames (~120 ms) and 40 px of where it lifted, the same stroke carries on, because a
+   flicker like that isn't a real release. Moving to the next letter takes longer and goes
+   further. A tracking dropout never re-joins.
 6. **Ink layer.** Strokes are stored as point lists (that list is the source of truth) and
    rendered into a separate BGR colour image plus an alpha mask. The eraser is a stroke
    that writes alpha = 0. Undo pops the last stroke and re-renders, so you can undo an
@@ -157,9 +165,12 @@ All the numbers live in [`airscribe/config.py`](airscribe/config.py):
 - Check any setting against a real recording without a camera:
   `python scripts\replay_log.py gestures.csv --start 0.28 --release 0.44`. It prints
   how many strokes the session would give, how many are tiny, and how much would ink.
+  Add `--full replay.png` to re-run the whole app on the recorded hand landmarks and save
+  the drawing it produces.
 - `SmoothingConfig.min_cutoff`: lower it for steadier, laggier ink; raise it for snappier ink.
   `beta`: raise it if fast strokes lag or corners get rounded.
-- `StrokeConfig.max_jump_fraction`, `edge_margin`, `min_point_distance`.
+- `StrokeConfig.max_jump_fraction`, `edge_margin`, `min_point_distance`, and
+  `rejoin_frames` / `rejoin_px` for re-joining a momentary release.
 - `TrackerConfig.num_hands` (default 1) and the confidence thresholds.
 - Palette, brush sizes, eraser scale.
 
@@ -192,9 +203,10 @@ python scripts\sim_report.py
   - 20 seconds of hovering with the thumb half-closed, which must leave no ink
   A guard test checks that the old 3D-only settings still fail in front of the body, so
   the simulator keeps reproducing the real bug.
-- **Real-session regression**: `tests/data/session1_ratios.csv` holds real recorded pinch
-  values. They're replayed through the detector to check stroke count and accidental tiny
-  strokes.
+- **Real-session regressions**: `tests/data/session1_ratios.csv` and `session2_ratios.csv`
+  hold pinch values from two real sessions (numbers only, no hand landmarks). They're
+  replayed through the detector to check stroke count, accidental tiny strokes, and that
+  the learned open level doesn't sink.
 - `scripts\sim_report.py` prints the scenario table and saves `sim_report/summary.png`,
   which shows the worst run of each scenario before and after.
 
